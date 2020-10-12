@@ -4,7 +4,7 @@
 # Griffinlim超参数临时使用1.2和80，区别在哪里？
 # 取log的时候，浮点数（power值）统一加上了1e-5
 # min_db没有详细统计，直接用的-80
-# 户建坤-hujk17为了理解长河10ms版本cbhg-ppg代码进行了一次梳理，抄写的。2020-9-27-20-14
+# 户建坤-hujk17为了理解长河10ms版本cbhg-ppg代码进行了一次梳理，抄写的。2020-9-30-21-01
 
 import librosa
 import tensorflow as tf
@@ -21,7 +21,7 @@ hparams = {
     'sample_rate': 16000,
     'preemphasis': 0.97,
     'n_fft': 400,
-    'hop_length': 160,
+    'hop_length': 80,
     'win_length': 400,
     'num_mels': 80,
     'n_mfcc': 13,
@@ -33,8 +33,9 @@ hparams = {
     'griffin_lim_power': 1.5,
     'griffin_lim_iterations': 60,  
     'silence_db': -28.0,
-    'center': False,
+    'center': True,
 }
+
 
 _mel_basis = None
 _inv_mel_basis = None
@@ -66,7 +67,7 @@ def wav2unnormalized_mfcc(wav_arr, sr=hparams['sample_rate'], preemphasis=hparam
                 win_len=hparams['win_length'], num_mels=hparams['num_mels'], 
                 n_mfcc=hparams['n_mfcc'], window=hparams['window'],fmin=0.0,
                 fmax=None, ref_db=hparams['ref_db'],
-                center=hparams['power_center']):
+                center=hparams['center']):
     
     emph_wav_arr = _preempahsis(wav_arr, pre_param=preemphasis)
     power_spec = _power_spec(emph_wav_arr, n_fft=n_fft, hop_len=hop_len, win_len=win_len, window=window, center=center)
@@ -124,9 +125,12 @@ def normalized_db_mel2wav(normalized_db_mel, sr=hparams['sample_rate'], preempha
     power_mel = _db2power(db_mel, ref_db=ref_db)
     power_spec = _power_mel2power_spec(power_mel, sr=sr, n_fft=n_fft, num_mels=num_mels, fmin=fmin, fmax=fmax) #矩阵求逆猜出来的spec
     magnitude_spec = power_spec ** 0.5 # (time, n_fft/2+1)
-    magnitude_spec_t = magnitude_spec.T
-    griffinlim_powered_magnitude_spec_t = magnitude_spec_t ** griffin_lim_power
-    emph_wav_arr = _griffin_lim(griffinlim_powered_magnitude_spec_t, gl_iterations=griffin_lim_iterations,
+    print('-----1:', magnitude_spec.shape)
+    # magnitude_spec_t = magnitude_spec.T
+    griffinlim_powered_magnitude_spec = magnitude_spec ** griffin_lim_power # (time, n_fft/2+1)
+    print('-----2:', griffinlim_powered_magnitude_spec.shape)
+    # 送入griffinlim的是正常的 (time, n_fft/2+1)
+    emph_wav_arr = _griffin_lim(griffinlim_powered_magnitude_spec, gl_iterations=griffin_lim_iterations,
                                 n_fft=n_fft, hop_len=hop_len, win_len=win_len, window=window, center=center)
 
     wav_arr = _deemphasis(emph_wav_arr, pre_param=preemphasis)
@@ -144,9 +148,9 @@ def normalized_db_spec2wav(normalized_db_spec, sr=hparams['sample_rate'], preemp
     db_spec = _db_denormalize(normalized_db_spec, min_db=min_db)
     power_spec = _db2power(db_spec, ref_db=ref_db) # (time, n_fft/2+1)
     magnitude_spec = power_spec ** 0.5 # (time, n_fft/2+1)
-    magnitude_spec_t = magnitude_spec.T #(n_fft/2+1, time)
-    griffinlim_powered_magnitude_spec_t = magnitude_spec_t ** griffin_lim_power
-    emph_wav_arr = _griffin_lim(griffinlim_powered_magnitude_spec_t, gl_iterations=griffin_lim_iterations,
+    # magnitude_spec_t = magnitude_spec.T #(n_fft/2+1, time)
+    griffinlim_powered_magnitude_spec = magnitude_spec ** griffin_lim_power
+    emph_wav_arr = _griffin_lim(griffinlim_powered_magnitude_spec, gl_iterations=griffin_lim_iterations,
                                 n_fft=n_fft, hop_len=hop_len, win_len=win_len, window=window, center=center)
 
     wav_arr = _deemphasis(emph_wav_arr, pre_param=preemphasis)
@@ -254,6 +258,8 @@ def _griffin_lim(magnitude_spec, gl_iterations, n_fft, hop_len, win_len, window,
     # # 在这里进行gl的power，输入的是正常的magnitude_spec
     # magnitude_spec = magnitude_spec ** gl_power
     mag = magnitude_spec.T  # transpose to [n_freqs, time]
+    print('-----3:', magnitude_spec.shape)
+    print('-----4:', mag.shape)
     angles = np.exp(2j * np.pi * np.random.rand(*mag.shape))
     complex_mag = np.abs(mag).astype(np.complex)
     stft_0 = complex_mag * angles
